@@ -1,0 +1,10 @@
+{
+  "name": "ovm-deploy-debug",
+  "version": "1.0.0",
+  "main": "index.js",
+  "author": "Kristijan Rebernisak <kristijan.rebernisak@gmail.com>",
+  "license": "MIT",
+  "dependencies": {
+    "ethers": "^5.0.24"
+  }
+}
