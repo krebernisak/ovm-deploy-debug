@@ -11,7 +11,7 @@ yarn install
 Start the [local OVM testnet](https://github.com/ethereum-optimism/optimism-integration) and run:
 
 ```bash
-node index.js
+node index.js [network]
 ```
 
 The output should look something like this:
