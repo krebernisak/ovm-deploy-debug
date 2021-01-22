@@ -35,14 +35,9 @@ const main = async () => {
       engine: "ovm",
     },
     kovan: { url: "https://kovan.optimism.io", port: 69, engine: "ovm" },
-    arbitrum: {
-      url: "https://kovan3.arbitrum.io/rpc",
-      port: 79377087078960,
-      engine: "evm",
-    },
   };
 
-  const { url, port, engine } = networks[networkArg];
+  const { url, port, engine, gasPrice } = networks[networkArg];
   console.log("Deploying to: ", networks[networkArg]);
   const provider = new ethers.providers.JsonRpcProvider(url, port);
   const wallet = new ethers.Wallet(key, provider);
@@ -56,7 +51,7 @@ const main = async () => {
     "100000000000000", // maxSubmissionValue
     0, // decimals
     "Fast Gas / Gwei", // description
-    { gasPrice: 0 },
+    { gasPrice: gasPrice || 0 },
   ];
 
   console.log("Deploying with: ", payload);
@@ -117,7 +112,7 @@ const main = async () => {
     5,
     9,
     1,
-    { gasPrice: 0 },
+    { gasPrice: gasPrice || 0 },
   ];
   const addOraclesTx = await contract.changeOracles(...payload2);
   console.log("addOraclesTx: ", addOraclesTx);
