@@ -1,24 +1,23 @@
 const { ethers } = require("ethers");
-const { existsSync, readFileSync } = require("fs");
-const { join } = require("path");
+const assert = require("assert");
+const { Median__factory } = require("./contracts/Median__factory");
+const {
+  FluxAggregator__factory,
+} = require("./contracts/FluxAggregator__factory");
+const {
+  AccessControlledAggregator__factory,
+} = require("./contracts/AccessControlledAggregator__factory");
 
-const loadJSON = (path) => {
-  const cwd = process.cwd();
-  const absPath = join(cwd, path);
+const deployLibraries = async (wallet) => {
+  // Deploy Median
+  const medianTx = await new Median__factory(wallet).deploy([]);
+  const medianContract = await medianTx.deployed();
+  console.log("Median contract now live at: ", medianContract.address);
 
-  const found = existsSync(absPath);
-  if (!found) throw new Error(`File ${absPath} not found`);
-
-  const buffer = readFileSync(absPath);
-  return JSON.parse(buffer.toString());
-};
-
-const loadFactory = (abi, signer) => {
-  return new ethers.ContractFactory(
-    abi.compilerOutput.abi,
-    abi.compilerOutput.evm.bytecode,
-    signer
-  );
+  return {
+    "/Users/krebernisak/Documents/workspace/work/chainlink/code/chainlink-optimism/evm-contracts/src/v0.6-ovm/Median.sol:Median":
+      medianContract.address,
+  };
 };
 
 const main = async () => {
@@ -28,58 +27,98 @@ const main = async () => {
   const networkArg = process.argv.slice(2)[0] || "local";
 
   const networks = {
-    local: { url: "http://localhost:8545/", port: 420, engine: "ovm" },
-    goerli: {
-      url: "https://goerli.optimism.io/",
-      port: 420,
-      engine: "ovm",
-    },
-    kovan: { url: "https://kovan.optimism.io", port: 69, engine: "ovm" },
+    local: { url: "http://localhost:8545/", id: 420 },
+    goerli: { url: "https://goerli.optimism.io/", id: 420 },
+    kovan: { url: "https://kovan.optimism.io", id: 69 },
   };
 
-  const { url, port, engine, gasPrice } = networks[networkArg];
+  const { url, id, gasPrice } = networks[networkArg];
   console.log("Deploying to: ", networks[networkArg]);
-  const provider = new ethers.providers.JsonRpcProvider(url, port);
+  const provider = new ethers.providers.JsonRpcProvider(url, id);
   const wallet = new ethers.Wallet(key, provider);
 
-  const payload = [
-    "0x833916Cc2874408f1f6a68f680F4AE2240c46af9", // link
-    "0", // paymentAmount
-    "600", // timeout
-    "0x0000000000000000000000000000000000000000", // validator
-    "10000000", // minSubmissionValue
-    "100000000000000", // maxSubmissionValue
-    0, // decimals
-    "Fast Gas / Gwei", // description
-    { gasPrice: gasPrice || 0 },
-  ];
+  const options = { gasPrice: gasPrice || 0, gasLimit: 8999999 };
 
-  console.log("Deploying with: ", payload);
+  const _finishAndCheckDeploy = async (tx) => {
+    const txHash = tx.deployTransaction.hash;
+    console.log("Deployed in transaction:", txHash);
+    console.log("Will live at address:", tx.address);
 
-  const abi = loadJSON(`./abi/v0.6-${engine}/FluxAggregator.json`);
-  const factory = loadFactory(abi, wallet);
+    const contract = await tx.deployed();
+    console.log("Contract now live at: ", contract.address);
 
-  const tx = await factory.deploy(...payload);
+    const txReceipt = await provider.getTransactionReceipt(txHash);
+    console.log("Receipt: ", txReceipt);
 
-  const txHash = tx.deployTransaction.hash;
-  console.log("Deployed in transaction:", txHash);
-  console.log("Will live at address:", tx.address);
+    // Check if code is stored
+    console.log("\nTESTING: code\n--------");
+    const code = await provider.getCode(contract.address);
+    console.log("Code: ", code);
 
-  const contract = await tx.deployed();
-  console.log("Contract now live at: ", contract.address);
+    return contract;
+  };
 
-  const txReceipt = await provider.getTransactionReceipt(txHash);
-  console.log("Receipt: ", txReceipt);
+  const _deploy = async (factory, payload) => {
+    console.log("Deploying with: ", payload);
+    const tx = await factory.deploy(...payload);
+    return await _finishAndCheckDeploy(tx);
+  };
 
-  // Check if code is stored
-  console.log("\nTESTING: code\n--------");
-  const code = await provider.getCode(contract.address);
-  console.log("Code: ", code);
+  const _deployFA = async () => {
+    const linkLibraryAddresses = await deployLibraries(wallet);
+    console.log(linkLibraryAddresses);
+
+    const factory = new FluxAggregator__factory(linkLibraryAddresses, wallet);
+
+    const payload = [options];
+    return await _deploy(factory, payload);
+  };
+
+  const _deployACA = async (faAddr) => {
+    const factory = new AccessControlledAggregator__factory(wallet);
+
+    const payload = [faAddr, options];
+    return await _deploy(factory, payload);
+  };
+
+  const _init = async (contract) => {
+    const payload = [
+      "0x833916Cc2874408f1f6a68f680F4AE2240c46af9", // link
+      "0", // paymentAmount
+      "600", // timeout
+      "0x0000000000000000000000000000000000000000", // validator
+      "10000000", // minSubmissionValue
+      "100000000000000", // maxSubmissionValue
+      0, // decimals
+      "Fast Gas / Gwei", // description
+      options,
+    ];
+    console.log("Initializing with: ", payload);
+
+    const initTx = await contract.init(...payload);
+    console.log("initTx: ", initTx);
+
+    const initTxReceipt = await initTx.wait();
+    console.log("initTxReceipt: ", initTxReceipt);
+  };
+
+  const faContract = await _deployFA();
+  const acaContract = await _deployACA(faContract.address);
+  const contract = new ethers.Contract(
+    acaContract.address,
+    faContract.interface,
+    wallet
+  );
+  await _init(contract);
 
   // Try to read
   console.log("\nTESTING: read\n--------");
   const owner = await contract.owner();
   console.log("Owner: ", owner);
+
+  const maxSubmissionValue = await contract.maxSubmissionValue();
+  console.log("maxSubmissionValue: ", maxSubmissionValue.toString());
+
   const maxSubmissionCountBefore = await contract.maxSubmissionCount();
   console.log("MaxSubmissionCount: ", maxSubmissionCountBefore);
 
@@ -122,6 +161,27 @@ const main = async () => {
 
   const maxSubmissionCountAfter = await contract.maxSubmissionCount();
   console.log("MaxSubmissionCount: ", maxSubmissionCountAfter);
+
+  // Check access
+
+  try {
+    await contract.latestAnswer();
+    assert(false);
+  } catch (err) {
+    console.log("Access blocked: ", err);
+  }
+
+  const addAccessTx = await acaContract.addAccess(wallet.address);
+  console.log("addAccessTx: ", addOraclesTx);
+
+  const addAccessTxReceipt = await addAccessTx.wait();
+  console.log("addAccessTxReceipt: ", addAccessTxReceipt);
+
+  const latestAnswer = await contract.latestAnswer();
+  console.log("latestAnswer: ", latestAnswer);
+
+  const description = await contract.description();
+  console.log("description: ", description);
 };
 
 main().catch((e) => console.error(e));
