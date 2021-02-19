@@ -7,6 +7,9 @@ const {
 const {
   AccessControlledAggregator__factory,
 } = require("./contracts/AccessControlledAggregator__factory");
+const {
+  EACAggregatorProxy__factory,
+} = require("./contracts/EACAggregatorProxy__factory");
 
 const deployLibraries = async (wallet) => {
   // Deploy Median
@@ -109,6 +112,7 @@ const main = async () => {
     faContract.interface,
     wallet
   );
+
   await _init(contract);
 
   // Try to read
@@ -164,6 +168,11 @@ const main = async () => {
 
   // Check access
 
+  const _checkAccess = async (addr) => {
+    const hasAccess = await acaContract.hasAccess(addr, "0x");
+    console.log(`hasAccess ${addr}: `, hasAccess);
+  };
+
   try {
     await contract.latestAnswer();
     assert(false);
@@ -171,17 +180,62 @@ const main = async () => {
     console.log("Access blocked: ", err);
   }
 
+  await _checkAccess(wallet.address);
+
   const addAccessTx = await acaContract.addAccess(wallet.address);
-  console.log("addAccessTx: ", addOraclesTx);
+  console.log("addAccessTx: ", addAccessTx);
 
   const addAccessTxReceipt = await addAccessTx.wait();
   console.log("addAccessTxReceipt: ", addAccessTxReceipt);
+
+  await _checkAccess(wallet.address);
 
   const latestAnswer = await contract.latestAnswer();
   console.log("latestAnswer: ", latestAnswer);
 
   const description = await contract.description();
   console.log("description: ", description);
+
+  // Check there is no data submitted
+  const _assertLatestRoundDataError = async (c) => {
+    try {
+      await c.latestRoundData();
+      // await c.connect(ethers.constants.AddressZero).latestRoundData();
+      assert(false, "Should error with: No data present");
+    } catch (err) {
+      console.log(err);
+      assert(
+        err.reason === "No data present",
+        "Should error with: No data present"
+      );
+    }
+  };
+
+  await _assertLatestRoundDataError(contract);
+
+  const _deployEACAP = async (aggAddr, acAddr) => {
+    const factory = new EACAggregatorProxy__factory(wallet);
+
+    const payload = [aggAddr, acAddr, options];
+    return await _deploy(factory, payload);
+  };
+
+  const eacapContract = await _deployEACAP(
+    acaContract.address,
+    ethers.constants.AddressZero // allow all access to EACAP
+  );
+
+  // allow EACAP access to ACA
+  const addAccessTx1 = await acaContract.addAccess(eacapContract.address);
+  console.log("addAccessTx1: ", addAccessTx1);
+
+  const addAccessTxReceipt1 = await addAccessTx1.wait();
+  console.log("addAccessTxReceipt1: ", addAccessTxReceipt1);
+
+  await _checkAccess(wallet.address);
+  await _checkAccess(eacapContract.address);
+
+  await _assertLatestRoundDataError(eacapContract);
 };
 
 main().catch((e) => console.error(e));
