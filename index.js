@@ -1,6 +1,6 @@
 const { ethers } = require("ethers");
 const assert = require("assert");
-const { Median__factory } = require("./contracts/Median__factory");
+const { Medianizer__factory } = require("./contracts/Medianizer__factory");
 const {
   FluxAggregator__factory,
 } = require("./contracts/FluxAggregator__factory");
@@ -10,18 +10,6 @@ const {
 const {
   EACAggregatorProxy__factory,
 } = require("./contracts/EACAggregatorProxy__factory");
-
-const deployLibraries = async (wallet) => {
-  // Deploy Median
-  const medianTx = await new Median__factory(wallet).deploy([]);
-  const medianContract = await medianTx.deployed();
-  console.log("Median contract now live at: ", medianContract.address);
-
-  return {
-    "/Users/krebernisak/Documents/workspace/work/chainlink/code/chainlink-optimism/evm-contracts/src/v0.6-ovm/Median.sol:Median":
-      medianContract.address,
-  };
-};
 
 const main = async () => {
   const key =
@@ -68,10 +56,7 @@ const main = async () => {
   };
 
   const _deployFA = async () => {
-    const linkLibraryAddresses = await deployLibraries(wallet);
-    console.log(linkLibraryAddresses);
-
-    const factory = new FluxAggregator__factory(linkLibraryAddresses, wallet);
+    const factory = new FluxAggregator__factory(wallet);
 
     const payload = [options];
     return await _deploy(factory, payload);
@@ -85,8 +70,12 @@ const main = async () => {
   };
 
   const _init = async (contract) => {
+    const medianizerFactory = new Medianizer__factory(wallet);
+    const medianizer = await _deploy(medianizerFactory, [options]);
+
     const payload = [
       "0x833916Cc2874408f1f6a68f680F4AE2240c46af9", // link
+      medianizer.address,
       "0", // paymentAmount
       "600", // timeout
       "0x0000000000000000000000000000000000000000", // validator
@@ -166,7 +155,15 @@ const main = async () => {
   const maxSubmissionCountAfter = await contract.maxSubmissionCount();
   console.log("MaxSubmissionCount: ", maxSubmissionCountAfter);
 
-  // Check access
+  // Add/check access
+
+  const _addAccess = async (addr) => {
+    const addAccessTx = await acaContract.addAccess(addr);
+    console.log("addAccessTx: ", addAccessTx);
+
+    const addAccessTxReceipt = await addAccessTx.wait();
+    console.log("addAccessTxReceipt: ", addAccessTxReceipt);
+  };
 
   const _checkAccess = async (addr) => {
     const hasAccess = await acaContract.hasAccess(addr, "0x");
@@ -181,13 +178,7 @@ const main = async () => {
   }
 
   await _checkAccess(wallet.address);
-
-  const addAccessTx = await acaContract.addAccess(wallet.address);
-  console.log("addAccessTx: ", addAccessTx);
-
-  const addAccessTxReceipt = await addAccessTx.wait();
-  console.log("addAccessTxReceipt: ", addAccessTxReceipt);
-
+  await _addAccess(wallet.address);
   await _checkAccess(wallet.address);
 
   const latestAnswer = await contract.latestAnswer();
@@ -226,11 +217,7 @@ const main = async () => {
   );
 
   // allow EACAP access to ACA
-  const addAccessTx1 = await acaContract.addAccess(eacapContract.address);
-  console.log("addAccessTx1: ", addAccessTx1);
-
-  const addAccessTxReceipt1 = await addAccessTx1.wait();
-  console.log("addAccessTxReceipt1: ", addAccessTxReceipt1);
+  await _addAccess(eacapContract.address);
 
   await _checkAccess(wallet.address);
   await _checkAccess(eacapContract.address);
